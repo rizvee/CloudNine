@@ -1,1 +1,175 @@
-/* Basic styles will be added later */
+/* Global Styles */
+body {
+    font-family: 'Roboto', sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f4f4f4; /* Light grey background for the page */
+    color: #333; /* Dark grey text */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* Align to top, container will have its own margin */
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+/* App Container */
+.weather-app-container {
+    background-color: #ffffff; /* White background for the card */
+    padding: 25px 30px;
+    border-radius: 12px; /* Rounded corners */
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Subtle box-shadow */
+    width: 100%;
+    max-width: 500px; /* Max width for the card */
+    text-align: center;
+    box-sizing: border-box;
+}
+
+/* Header */
+header h1 {
+    font-size: 2.2em;
+    color: #202124; /* Google-like dark grey/black */
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+/* Location Display */
+.location-info { /* Added a wrapper class in HTML if not present, or target .location-display */
+    margin-bottom: 20px;
+}
+.location-display {
+    font-size: 1.1em;
+    color: #5f6368; /* Google-like secondary text color */
+    min-height: 1.5em; /* Reserve space */
+}
+
+/* Main Weather Display */
+.main-weather-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 25px;
+}
+
+.weather-icon {
+    width: 100px; /* Size of the icon placeholder */
+    height: 100px;
+    background-color: #e0e0e0; /* Placeholder background */
+    border-radius: 50%; /* Circular placeholder */
+    margin-bottom: 15px;
+    /* In a real app, src would be dynamic; alt text is important */
+}
+
+.temperature {
+    font-size: 4.5em; /* Large and prominent temperature */
+    font-weight: 500;
+    color: #202124;
+    line-height: 1;
+    margin-bottom: 5px;
+}
+
+.weather-description {
+    font-size: 1.2em;
+    color: #5f6368;
+    text-transform: capitalize;
+    min-height: 1.5em; /* Reserve space */
+}
+
+/* Additional Details */
+.additional-details {
+    border-top: 1px solid #e0e0e0; /* Separator line */
+    padding-top: 20px;
+    margin-top: 20px;
+    text-align: left; /* Align details to the left within this section */
+}
+
+.additional-details div {
+    font-size: 0.95em;
+    color: #3c4043;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between; /* Space out label and value */
+}
+
+.additional-details div span { /* Targets the value spans */
+    font-weight: 500;
+    color: #202124;
+}
+
+
+/* Loading Spinner */
+.loading-spinner {
+    display: block; /* Default visible, JS will hide it */
+    text-align: center;
+    padding: 20px;
+    font-size: 1.1em;
+    color: #5f6368;
+}
+/* If a more complex spinner is added later, its styles would go here */
+
+
+/* Error Message */
+.error-message {
+    /* display: none; is set inline in HTML, can be reinforced here or managed by JS */
+    background-color: #fce8e6; /* Light red background for error */
+    color: #c5221f; /* Darker red text for error */
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 20px;
+    border: 1px solid #f4c7c5;
+}
+
+/* Utility class to hide elements (can be toggled by JS) */
+.hidden {
+    display: none !important;
+}
+
+/* Basic Responsiveness */
+@media (max-width: 600px) {
+    body {
+        padding: 10px; /* Reduce body padding on smaller screens */
+    }
+
+    .weather-app-container {
+        padding: 20px; /* Reduce padding inside the card */
+        margin-top: 10px; /* Add some top margin if needed */
+    }
+
+    header h1 {
+        font-size: 1.8em; /* Slightly smaller header */
+    }
+
+    .temperature {
+        font-size: 3.5em; /* Smaller temperature display */
+    }
+
+    .weather-description {
+        font-size: 1.1em;
+    }
+
+    .additional-details div {
+        font-size: 0.9em;
+    }
+}
+
+@media (max-width: 400px) {
+    header h1 {
+        font-size: 1.6em;
+    }
+    .temperature {
+        font-size: 3em;
+    }
+    .weather-icon {
+        width: 80px;
+        height: 80px;
+    }
+    .additional-details {
+        text-align: center; /* Center align details on very small screens */
+    }
+    .additional-details div {
+        justify-content: center; /* Center label and value if they wrap */
+        flex-direction: column; /* Stack label and value */
+        align-items: center;
+        margin-bottom: 15px;
+    }
+}
