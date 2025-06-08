@@ -59,12 +59,28 @@ def get_weather():
         # This error is specific to this data block if lat/lon were present but key was not
         weatherapi_com_data = {"error": "WeatherAPI.com API key not configured or missing."}
 
+    tomorrow_io_data = {}
+    if tomorrow_io_api_key: # This key is already retrieved and status set in api_keys_status
+        url = f"https://api.tomorrow.io/v4/weather/realtime?location={lat},{lon}"
+        headers = {"apikey": tomorrow_io_api_key}
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            tomorrow_io_data = response.json()
+        except requests.exceptions.RequestException as e:
+            tomorrow_io_data = {"error": f"Tomorrow.io API request failed: {str(e)}"}
+        except Exception as e: # Catch any other unexpected errors
+            tomorrow_io_data = {"error": f"An unexpected error occurred with Tomorrow.io data processing: {str(e)}"}
+    else:
+        tomorrow_io_data = {"error": "Tomorrow.io API key not configured or missing."}
+
     return jsonify({
         "latitude": lat,
         "longitude": lon,
         "api_keys_status": api_keys_status,
         "openweathermap": openweathermap_data,
-        "weatherapi_com": weatherapi_com_data
+        "weatherapi_com": weatherapi_com_data,
+        "tomorrow_io": tomorrow_io_data
     })
 
 if __name__ == '__main__':

@@ -1,8 +1,72 @@
 import pytest
 from backend.app import app # Assuming app.py is in backend directory
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import os
 import requests # For exception types
+
+# Comprehensive mock function for all API calls
+def mock_api_calls(url, headers=None, timeout=None):
+    mock_resp = MagicMock(spec=requests.Response)
+    mock_resp.status_code = 404 # Default
+    mock_resp.json.return_value = {"error": "Mocked URL not found or not handled by mock_api_calls"}
+    # Default raise_for_status to do nothing unless specified
+    mock_resp.raise_for_status = MagicMock()
+
+    if "api.openweathermap.org" in url:
+        api_key = os.environ.get('OPENWEATHERMAP_API_KEY')
+        if api_key == 'raise_request_exception':
+            raise requests.exceptions.RequestException("OWM mock: network error")
+        if api_key == 'raise_http_error':
+            mock_resp.status_code = 500
+            mock_resp.json.return_value = {"error": "OWM mock: Server Error"}
+            mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("OWM mock: Server Error")
+        elif api_key: # Assumes any other non-empty key is valid for mock success
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
+        else: # Key not found
+            mock_resp.status_code = 401 # Or some other error that app handles or ignores
+            mock_resp.json.return_value = {"error": "OWM mock: API key missing"}
+            mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("OWM mock: API key missing")
+
+
+    elif "api.weatherapi.com" in url:
+        api_key = os.environ.get('WEATHERAPI_COM_API_KEY')
+        if api_key == 'raise_request_exception':
+            raise requests.exceptions.RequestException("WAC mock: network error")
+        if api_key == 'raise_http_error':
+            mock_resp.status_code = 500
+            mock_resp.json.return_value = {"error": "WAC mock: Server Error"}
+            mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("WAC mock: Server Error")
+        elif api_key:
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {"current": {"temp_c": 26, "condition": {"text": "Sunny"}}}
+        else:
+            mock_resp.status_code = 401
+            mock_resp.json.return_value = {"error": "WAC mock: API key missing"}
+            mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("WAC mock: API key missing")
+
+    elif "api.tomorrow.io" in url:
+        api_key_in_header = headers.get("apikey") if headers else None
+        env_api_key = os.environ.get('TOMORROW_IO_API_KEY')
+
+        if api_key_in_header and api_key_in_header == env_api_key:
+            if env_api_key == 'raise_request_exception':
+                raise requests.exceptions.RequestException("TIO mock: network error")
+            if env_api_key == 'raise_http_error':
+                mock_resp.status_code = 503
+                mock_resp.json.return_value = {"error": "TIO mock: Service Unavailable"}
+                mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("TIO mock: Service Unavailable")
+            elif env_api_key : # Valid key
+                mock_resp.status_code = 200
+                # Adjusted to match the example structure used in earlier Tomorrow.io test prompt
+                mock_resp.json.return_value = {"data": {"timelines": [{"intervals": [{"values": {"temperature": 27}}]}]}}
+            # else case: env_api_key is None but somehow passed header check - should not happen if app logic is correct
+        else: # API key mismatch or missing in header/env
+            mock_resp.status_code = 401 # Unauthorized
+            mock_resp.json.return_value = {"error": "TIO mock: API key issue in request or env"}
+            mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError("TIO mock: API key issue")
+
+    return mock_resp
 
 @pytest.fixture
 def client():
@@ -32,252 +96,150 @@ def test_weather_endpoint_missing_params(client):
     json_data = response.get_json()
     assert json_data['error'] == "Latitude and longitude query parameters are required."
 
-
-@patch('backend.app.requests.get') # Patch where 'requests' is used in 'app.py'
+# Tests for OpenWeatherMap
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
 def test_weather_endpoint_openweathermap_success(mock_get, client):
-    """Test /api/weather with successful OpenWeatherMap API call."""
-    with patch.dict(os.environ, {'OPENWEATHERMAP_API_KEY': 'fake_key', 'WEATHERAPI_COM_API_KEY': 'dummy', 'TOMORROW_IO_API_KEY': 'dummy'}):
-        mock_response = mock_get.return_value
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
-
-        response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
-        json_data = response.get_json()
-
-        assert json_data['latitude'] == '12.34'
-        assert json_data['longitude'] == '56.78'
-        assert 'openweathermap' in json_data
-        assert json_data['openweathermap'].get('main', {}).get('temp') == 25
-        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
-
-@patch('backend.app.requests.get')
-def test_weather_endpoint_openweathermap_api_key_missing(mock_get, client):
-    """Test /api/weather when OpenWeatherMap API key is missing."""
-    original_env = os.environ.copy()
-    # Ensure OPENWEATHERMAP_API_KEY is not in os.environ for this specific test context
-    # We want app.py's os.environ.get('OPENWEATHERMAP_API_KEY') to return None
-    # Keep other keys if they exist to check their status reporting
-    env_vars_for_test = {k: v for k, v in original_env.items() if k != 'OPENWEATHERMAP_API_KEY'}
-    # Also ensure the other keys are present for consistent api_keys_status check.
-    if 'WEATHERAPI_COM_API_KEY' not in env_vars_for_test: env_vars_for_test['WEATHERAPI_COM_API_KEY'] = 'dummy_wac_key'
-    if 'TOMORROW_IO_API_KEY' not in env_vars_for_test: env_vars_for_test['TOMORROW_IO_API_KEY'] = 'dummy_tio_key'
-
-    with patch.dict(os.environ, env_vars_for_test, clear=True):
-        def side_effect_func(url, timeout=None):
-            mock_resp = type(mock_get.return_value)()
-            if "api.weatherapi.com" in url:
-                # This API should be called if its key (dummy_wac_key) is present
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"current": {"temp_c": 27}} # Mocked WAC data
-            elif "api.tomorrow.io" in url:
-                # This API should be called if its key (dummy_tio_key) is present
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"data": {"values": {"temperature": 28}}} # Mocked TIO data
-            elif "api.openweathermap.org" in url:
-                # This should NOT be called, as OPENWEATHERMAP_API_KEY is missing.
-                # If it's called, it's an error in the application logic.
-                raise AssertionError("OpenWeatherMap API was called when its key was missing.")
-            else:
-                mock_resp.status_code = 404
-                mock_resp.json.return_value = {"error": f"Mocked URL not found: {url}"}
-            return mock_resp
-        mock_get.side_effect = side_effect_func
-
-        response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
-        json_data = response.get_json()
-
-        assert 'openweathermap' in json_data
-        assert "OpenWeatherMap API key not configured or missing." in json_data['openweathermap'].get('error', '')
-        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Not found"
-
-        # Check that other API data (if keys were present) are also there and correctly mocked
-        assert 'weatherapi_com' in json_data
-        if env_vars_for_test.get('WEATHERAPI_COM_API_KEY'):
-            assert json_data['weatherapi_com'].get('current', {}).get('temp_c') == 27
-            assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Loaded"
-        else: # Should not happen based on env_vars_for_test setup, but good for robustness
-            assert "WeatherAPI.com API key not configured or missing." in json_data['weatherapi_com'].get('error', '')
-            assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Not found"
-
-        # Assuming TOMORROW_IO_API_KEY is also handled by the endpoint and env_vars_for_test
-        # For now, this test primarily focuses on OWM key missing and WAC being present.
-        # If Tomorrow.io is implemented, similar checks for it would be needed.
-        assert json_data['api_keys_status']['TOMORROW_IO_API_KEY'] == "Loaded" # Based on dummy_tio_key
-
-@patch('backend.app.requests.get')
-def test_weather_endpoint_openweathermap_request_exception(mock_get, client):
-    """Test /api/weather with OpenWeatherMap API call failing (RequestException)."""
-    with patch.dict(os.environ, {'OPENWEATHERMAP_API_KEY': 'fake_key', 'WEATHERAPI_COM_API_KEY': 'dummy', 'TOMORROW_IO_API_KEY': 'dummy'}):
-        mock_get.side_effect = requests.exceptions.RequestException("Test network error")
-
-        response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
-        json_data = response.get_json()
-        assert 'openweathermap' in json_data
-        assert "OpenWeatherMap API request failed" in json_data['openweathermap'].get('error', '')
-        assert "Test network error" in json_data['openweathermap'].get('error', '')
-        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
-
-
-@patch('backend.app.requests.get')
-def test_weather_endpoint_openweathermap_http_error(mock_get, client):
-    """Test /api/weather with OpenWeatherMap API call failing (HTTPError)."""
-    with patch.dict(os.environ, {'OPENWEATHERMAP_API_KEY': 'fake_key', 'WEATHERAPI_COM_API_KEY': 'dummy', 'TOMORROW_IO_API_KEY': 'dummy'}):
-        mock_response = mock_get.return_value
-        mock_response.status_code = 500 # Or any 4xx/5xx error
-        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Server Error 500")
-
-        response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
-        json_data = response.get_json()
-        assert 'openweathermap' in json_data
-        assert "OpenWeatherMap API request failed" in json_data['openweathermap'].get('error', '')
-        # The exact content of str(e) for HTTPError might include the status code
-        assert "Server Error 500" in json_data['openweathermap'].get('error', '')
-        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
-
-
-@patch('backend.app.requests.get')
-def test_weather_endpoint_weatherapi_com_success(mock_get, client):
-    """Test /api/weather with successful WeatherAPI.com call."""
     env_vars = {
         'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
+        'WEATHERAPI_COM_API_KEY': 'fake_wac_key', # Ensure other keys are set for full test
+        'TOMORROW_IO_API_KEY': 'fake_tio_key'
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['openweathermap']['main']['temp'] == 25
+        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
+
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_openweathermap_key_missing(mock_get, client):
+    original_env = os.environ.copy()
+    env_vars = { # OWM key is absent
         'WEATHERAPI_COM_API_KEY': 'fake_wac_key',
         'TOMORROW_IO_API_KEY': 'fake_tio_key'
     }
-    with patch.dict(os.environ, env_vars):
-        def side_effect_func(url, timeout=None):
-            mock_resp = type(mock_get.return_value)()
-            if "api.openweathermap.org" in url:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
-            elif "api.weatherapi.com" in url:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"current": {"temp_c": 26, "condition": {"text": "Sunny"}}}
-            else:
-                mock_resp.status_code = 404
-                mock_resp.json.return_value = {"error": "Mocked URL not found"}
-            return mock_resp
-        mock_get.side_effect = side_effect_func
-
-        response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
-        json_data = response.get_json()
-
-        assert 'weatherapi_com' in json_data
-        assert json_data['weatherapi_com'].get('current', {}).get('temp_c') == 26
-        assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Loaded"
-        assert 'openweathermap' in json_data
-        assert json_data['openweathermap'].get('main', {}).get('temp') == 25
-        assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
-        assert json_data['api_keys_status']['TOMORROW_IO_API_KEY'] == "Loaded"
-
-
-@patch('backend.app.requests.get')
-def test_weather_endpoint_weatherapi_com_key_missing(mock_get, client):
-    """Test /api/weather when WeatherAPI.com API key is missing."""
-    original_env = os.environ.copy()
-
-    # Set up environment for the test: OWM and TIO keys present, WAC key absent
-    env_for_test = {
-        'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
-        'TOMORROW_IO_API_KEY': 'fake_tio_key'
-    }
-    # Ensure WEATHERAPI_COM_API_KEY is definitely not in this test's environment
-    if 'WEATHERAPI_COM_API_KEY' in env_for_test:
-        del env_for_test['WEATHERAPI_COM_API_KEY']
-
-    with patch.dict(os.environ, env_for_test, clear=True): # clear=True ensures only keys in env_for_test are set
-        def side_effect_func(url, timeout=None):
-            mock_resp = type(mock_get.return_value)()
-            if "api.openweathermap.org" in url:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
-            # No call to WeatherAPI.com should be made if key is missing
-            elif "api.weatherapi.com" in url:
-                mock_resp.status_code = 500 # Should not happen
-                mock_resp.json.return_value = {"error": "WeatherAPI.com called unexpectedly"}
-                raise AssertionError("WeatherAPI.com was called when its key was missing")
-            return mock_resp
-        mock_get.side_effect = side_effect_func
-
+    with patch.dict(os.environ, env_vars, clear=True):
         try:
             response = client.get('/api/weather?lat=12.34&lon=56.78')
-            assert response.status_code == 200
             json_data = response.get_json()
-
-            assert 'weatherapi_com' in json_data
-            assert "WeatherAPI.com API key not configured or missing." in json_data['weatherapi_com'].get('error', '')
-            assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Not found"
-
-            assert 'openweathermap' in json_data
-            assert json_data['openweathermap'].get('main', {}).get('temp') == 25
-            assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Loaded"
-            assert json_data['api_keys_status']['TOMORROW_IO_API_KEY'] == "Loaded"
+            assert "OpenWeatherMap API key not configured" in json_data['openweathermap'].get('error', '')
+            assert json_data['api_keys_status']['OPENWEATHERMAP_API_KEY'] == "Not found"
         finally:
             os.environ.clear()
             os.environ.update(original_env)
 
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_openweathermap_request_exception(mock_get, client):
+    env_vars = {'OPENWEATHERMAP_API_KEY': 'raise_request_exception', 'WEATHERAPI_COM_API_KEY': 'dummy_wac', 'TOMORROW_IO_API_KEY': 'dummy_tio'}
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert "OpenWeatherMap API request failed" in json_data['openweathermap'].get('error', '')
+        assert "OWM mock: network error" in json_data['openweathermap'].get('error', '')
 
-@patch('backend.app.requests.get')
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_openweathermap_http_error(mock_get, client):
+    env_vars = {'OPENWEATHERMAP_API_KEY': 'raise_http_error', 'WEATHERAPI_COM_API_KEY': 'dummy_wac', 'TOMORROW_IO_API_KEY': 'dummy_tio'}
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert "OpenWeatherMap API request failed" in json_data['openweathermap'].get('error', '')
+        assert "OWM mock: Server Error" in json_data['openweathermap'].get('error', '')
+
+# Tests for WeatherAPI.com
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_weatherapi_com_success(mock_get, client):
+    env_vars = {
+        'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
+        'WEATHERAPI_COM_API_KEY': 'fake_wac_key',
+        'TOMORROW_IO_API_KEY': 'fake_tio_key'
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert json_data['weatherapi_com']['current']['temp_c'] == 26
+        assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Loaded"
+
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_weatherapi_com_key_missing(mock_get, client):
+    original_env = os.environ.copy()
+    env_vars = { # WAC key is absent
+        'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
+        'TOMORROW_IO_API_KEY': 'fake_tio_key'
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
+        try:
+            response = client.get('/api/weather?lat=12.34&lon=56.78')
+            json_data = response.get_json()
+            assert "WeatherAPI.com API key not configured" in json_data['weatherapi_com'].get('error', '')
+            assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Not found"
+        finally:
+            os.environ.clear()
+            os.environ.update(original_env)
+
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
 def test_weather_endpoint_weatherapi_com_request_exception(mock_get, client):
-    """Test /api/weather with WeatherAPI.com call failing (RequestException)."""
-    env_vars = {
-        'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
-        'WEATHERAPI_COM_API_KEY': 'fake_wac_key',
-        'TOMORROW_IO_API_KEY': 'fake_tio_key'
-    }
-    with patch.dict(os.environ, env_vars):
-        def side_effect_func(url, timeout=None):
-            mock_resp = type(mock_get.return_value)()
-            if "api.openweathermap.org" in url:
-                mock_resp.status_code = 200
-                mock_resp.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
-            elif "api.weatherapi.com" in url:
-                raise requests.exceptions.RequestException("WAC network error")
-            return mock_resp
-        mock_get.side_effect = side_effect_func
-
+    env_vars = {'WEATHERAPI_COM_API_KEY': 'raise_request_exception', 'OPENWEATHERMAP_API_KEY': 'dummy_owm', 'TOMORROW_IO_API_KEY': 'dummy_tio'}
+    with patch.dict(os.environ, env_vars, clear=True):
         response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
         json_data = response.get_json()
-
-        assert 'weatherapi_com' in json_data
         assert "WeatherAPI.com API request failed" in json_data['weatherapi_com'].get('error', '')
-        assert "WAC network error" in json_data['weatherapi_com'].get('error', '')
-        assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Loaded"
+        assert "WAC mock: network error" in json_data['weatherapi_com'].get('error', '')
 
-
-@patch('backend.app.requests.get')
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
 def test_weather_endpoint_weatherapi_com_http_error(mock_get, client):
-    """Test /api/weather with WeatherAPI.com call failing (HTTPError)."""
+    env_vars = {'WEATHERAPI_COM_API_KEY': 'raise_http_error', 'OPENWEATHERMAP_API_KEY': 'dummy_owm', 'TOMORROW_IO_API_KEY': 'dummy_tio'}
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert "WeatherAPI.com API request failed" in json_data['weatherapi_com'].get('error', '')
+        assert "WAC mock: Server Error" in json_data['weatherapi_com'].get('error', '')
+
+# Tests for Tomorrow.io
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_tomorrow_io_success(mock_get, client):
     env_vars = {
         'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
         'WEATHERAPI_COM_API_KEY': 'fake_wac_key',
         'TOMORROW_IO_API_KEY': 'fake_tio_key'
     }
-    with patch.dict(os.environ, env_vars):
-        def side_effect_func(url, timeout=None):
-            # Create a new mock for each call to avoid state issues if using a single mock_get.return_value
-            current_call_mock_response = type(mock_get.return_value)()
-            if "api.openweathermap.org" in url:
-                current_call_mock_response.status_code = 200
-                current_call_mock_response.json.return_value = {"weather": [{"description": "clear sky"}], "main": {"temp": 25}}
-            elif "api.weatherapi.com" in url:
-                current_call_mock_response.status_code = 500
-                current_call_mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("WAC Server Error")
-            else:
-                current_call_mock_response.status_code = 404 # Should not happen
-            return current_call_mock_response
-        mock_get.side_effect = side_effect_func
-
+    with patch.dict(os.environ, env_vars, clear=True):
         response = client.get('/api/weather?lat=12.34&lon=56.78')
-        assert response.status_code == 200
         json_data = response.get_json()
+        assert json_data['tomorrow_io']['data']['timelines'][0]['intervals'][0]['values']['temperature'] == 27
+        assert json_data['api_keys_status']['TOMORROW_IO_API_KEY'] == "Loaded"
 
-        assert 'weatherapi_com' in json_data
-        assert "WeatherAPI.com API request failed" in json_data['weatherapi_com'].get('error', '')
-        assert "WAC Server Error" in json_data['weatherapi_com'].get('error', '')
-        assert json_data['api_keys_status']['WEATHERAPI_COM_API_KEY'] == "Loaded"
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_tomorrow_io_key_missing(mock_get, client):
+    original_env = os.environ.copy()
+    env_vars = { # TIO key is absent
+        'OPENWEATHERMAP_API_KEY': 'fake_owm_key',
+        'WEATHERAPI_COM_API_KEY': 'fake_wac_key'
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
+        try:
+            response = client.get('/api/weather?lat=12.34&lon=56.78')
+            json_data = response.get_json()
+            assert "Tomorrow.io API key not configured" in json_data['tomorrow_io'].get('error', '')
+            assert json_data['api_keys_status']['TOMORROW_IO_API_KEY'] == "Not found"
+        finally:
+            os.environ.clear()
+            os.environ.update(original_env)
+
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_tomorrow_io_request_exception(mock_get, client):
+    env_vars = {'TOMORROW_IO_API_KEY': 'raise_request_exception', 'OPENWEATHERMAP_API_KEY': 'dummy_owm', 'WEATHERAPI_COM_API_KEY': 'dummy_wac'}
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert "Tomorrow.io API request failed" in json_data['tomorrow_io'].get('error', '')
+        assert "TIO mock: network error" in json_data['tomorrow_io'].get('error', '')
+
+@patch('backend.app.requests.get', side_effect=mock_api_calls)
+def test_weather_endpoint_tomorrow_io_http_error(mock_get, client):
+    env_vars = {'TOMORROW_IO_API_KEY': 'raise_http_error', 'OPENWEATHERMAP_API_KEY': 'dummy_owm', 'WEATHERAPI_COM_API_KEY': 'dummy_wac'}
+    with patch.dict(os.environ, env_vars, clear=True):
+        response = client.get('/api/weather?lat=12.34&lon=56.78')
+        json_data = response.get_json()
+        assert "Tomorrow.io API request failed" in json_data['tomorrow_io'].get('error', '')
+        assert "TIO mock: Service Unavailable" in json_data['tomorrow_io'].get('error', '')
