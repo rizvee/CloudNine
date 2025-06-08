@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudNine Weather App</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="weather-app-container">
+        <header>
+            <h1>CloudNine</h1>
+        </header>
+
+        <section class="location-info">
+            <div class="location-display">Loading location...</div>
+        </section>
+
+        <section class="main-weather-display">
+            <img class="weather-icon" src="#" alt="Weather icon" style="width:100px; height:100px; background-color:#eee;"> <!-- Basic placeholder style -->
+            <div class="temperature">--°C</div>
+            <div class="weather-description">Loading...</div>
+        </section>
+
+        <section class="additional-details">
+            <div>Humidity: <span class="humidity-value">--%</span></div>
+            <div>Wind Speed: <span class="wind-speed-value">-- kph</span></div>
+            <div>Feels Like: <span class="feels-like-value">--°C</span></div>
+        </section>
+
+        <div class="loading-spinner">
+            <p>Loading data...</p> <!-- Simple text spinner for now -->
+        </div>
+
+        <div class="error-message" style="display:none; color:red;">
+            <p>An error occurred while fetching weather data.</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
