@@ -44,11 +44,27 @@ def get_weather():
     else:
         openweathermap_data = {"error": "OpenWeatherMap API key not configured or missing."}
 
+    weatherapi_com_data = {}
+    if weatherapi_com_api_key: # This key is already retrieved and status set in api_keys_status
+        url = f"http://api.weatherapi.com/v1/current.json?key={weatherapi_com_api_key}&q={lat},{lon}"
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            weatherapi_com_data = response.json()
+        except requests.exceptions.RequestException as e:
+            weatherapi_com_data = {"error": f"WeatherAPI.com API request failed: {str(e)}"}
+        except Exception as e: # Catch any other unexpected errors
+            weatherapi_com_data = {"error": f"An unexpected error occurred with WeatherAPI.com data processing: {str(e)}"}
+    else:
+        # This error is specific to this data block if lat/lon were present but key was not
+        weatherapi_com_data = {"error": "WeatherAPI.com API key not configured or missing."}
+
     return jsonify({
         "latitude": lat,
         "longitude": lon,
         "api_keys_status": api_keys_status,
-        "openweathermap": openweathermap_data
+        "openweathermap": openweathermap_data,
+        "weatherapi_com": weatherapi_com_data
     })
 
 if __name__ == '__main__':
