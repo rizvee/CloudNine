@@ -2,10 +2,12 @@ from flask import Flask, jsonify, request
 from dotenv import load_dotenv
 import os
 import requests
+from flask_cors import CORS # New import
 
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app) # Initialize CORS
 
 @app.route('/')
 def home():

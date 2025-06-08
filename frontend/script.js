@@ -141,8 +141,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 (position) => {
                     const latitude = position.coords.latitude;
                     const longitude = position.coords.longitude;
-                    const apiUrl = `/api/weather?lat=${latitude}&lon=${longitude}`;
-                    fetchWeatherData(apiUrl, latitude, longitude);
+                    // Use config.apiBaseUrl to construct the full API URL
+                    const apiUrl = `${config.apiBaseUrl}/api/weather?lat=${latitude}&lon=${longitude}`;
+                    fetchWeatherData(apiUrl, latitude, longitude); // Pass full URL and coords
                 },
                 (error) => {
                     console.error('Geolocation error:', error);
